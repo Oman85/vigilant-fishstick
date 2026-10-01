@@ -1,0 +1,270 @@
+// MWST Fleet - Power BI measures
+//
+// Paste these into Power BI Desktop one at a time: Modeling > New measure,
+// then replace the whole formula bar with one block below (without the
+// leading "//" comment lines).
+//
+// They assume the query from MWST_FleetEvents.pq, named "Events".
+// No date table is required; add one later and swap Events[EventDate] for
+// your date column if you want proper time intelligence.
+//
+// A note on the status measures: they deliberately ignore any date slicer
+// (ALL ( Events[EventDate] )), because "what is broken right now" must not
+// change when someone slices the reliability page to last week.
+
+
+// ===========================================================================
+// Counting reboots
+//
+// Never count rows by EventType. One reboot legitimately produces several
+// rows - the watchdog's own record, Windows' 1074, the boot, the
+// confirmation. The two flags below are TRUE on exactly one row per reboot.
+// ===========================================================================
+
+Script Reboots = CALCULATE ( COUNTROWS ( Events ), Events[IsScriptReboot] = TRUE () ) + 0
+
+All Reboots = CALCULATE ( COUNTROWS ( Events ), Events[IsCanonicalReboot] = TRUE () ) + 0
+
+White Screen Reboots = CALCULATE ( [Script Reboots], Events[RebootTrigger] = "WATCHDOG_WHITE" )
+
+Dark Screen Reboots = CALCULATE ( [Script Reboots], Events[RebootTrigger] = "WATCHDOG_LOWWHITE" )
+
+// Mach2 Launcher ver 1.00NG only: the dashboard could not be brought back
+// (Edge would not start or stay up, or kept failing) while the screen read
+// neither white nor dark. See Docs\Mach2-Launcher-NG.md.
+Browser Reboots = CALCULATE ( [Script Reboots], Events[RebootTrigger] = "WATCHDOG_BROWSER" )
+
+Update or Operator Reboots = CALCULATE ( [All Reboots], Events[RebootTrigger] = "EXTERNAL" )
+
+Power Loss or Hang = CALCULATE ( [All Reboots], Events[RebootTrigger] = "UNEXPECTED" )
+
+Unexplained Reboots = CALCULATE ( [All Reboots], Events[RebootTrigger] = "UNEXPLAINED" )
+
+Failed Restarts = CALCULATE ( COUNTROWS ( Events ), Events[EventType] = "RESTART_FAILED" ) + 0
+
+Script Reboots Today = CALCULATE ( [Script Reboots], Events[EventDate] = TODAY () )
+
+All Reboots Today = CALCULATE ( [All Reboots], Events[EventDate] = TODAY () )
+
+
+// ===========================================================================
+// Screen trouble that did NOT lead to a reboot
+//
+// An episode that recovered on its own is an early warning: the screen is
+// misbehaving but righting itself. A rising count here usually precedes
+// reboots.
+// ===========================================================================
+
+White Episodes = CALCULATE ( COUNTROWS ( Events ), Events[EventType] = "WHITE_EPISODE_START" ) + 0
+
+Dark Episodes = CALCULATE ( COUNTROWS ( Events ), Events[EventType] = "LOWWHITE_EPISODE_START" ) + 0
+
+Episodes Recovered =
+CALCULATE (
+    COUNTROWS ( Events ),
+    Events[EventType] IN { "WHITE_EPISODE_END", "LOWWHITE_EPISODE_END" },
+    Events[Outcome] = "RECOVERED"
+) + 0
+
+
+// ===========================================================================
+// Current state of one kiosk
+//
+// Put these in a table with Host or Location on rows.
+// ===========================================================================
+
+Last Seen =
+CALCULATE (
+    MAX ( Events[EventTimeLocal] ),
+    Events[EventType] = "HOST_STATUS",
+    ALL ( Events[EventDate] )
+)
+
+Current Status =
+VAR LastSeen = [Last Seen]
+RETURN
+    CALCULATE (
+        SELECTEDVALUE ( Events[Outcome] ),
+        Events[EventType] = "HOST_STATUS",
+        Events[EventTimeLocal] = LastSeen,
+        ALL ( Events[EventDate] )
+    )
+
+Watchdog State =
+VAR LastSeen = [Last Seen]
+VAR Running =
+    CALCULATE (
+        SELECTEDVALUE ( Events[WatchdogRunning] ),
+        Events[EventType] = "HOST_STATUS",
+        Events[EventTimeLocal] = LastSeen,
+        ALL ( Events[EventDate] )
+    )
+RETURN
+    SWITCH ( TRUE (), Running = TRUE (), "running", Running = FALSE (), "NOT RUNNING", "n/a" )
+
+Agent Version =
+VAR LastSeen = [Last Seen]
+RETURN
+    CALCULATE (
+        SELECTEDVALUE ( Events[AgentVersion] ),
+        Events[EventType] = "HOST_STATUS",
+        Events[EventTimeLocal] = LastSeen,
+        ALL ( Events[EventDate] )
+    )
+
+Uptime Hours =
+VAR LastSeen = [Last Seen]
+RETURN
+    CALCULATE (
+        SELECTEDVALUE ( Events[UptimeHours] ),
+        Events[EventType] = "HOST_STATUS",
+        Events[EventTimeLocal] = LastSeen,
+        ALL ( Events[EventDate] )
+    )
+
+Days Since Last Watchdog Reboot =
+VAR LastOne = CALCULATE ( MAX ( Events[EventTimeLocal] ), Events[IsScriptReboot] = TRUE (), ALL ( Events[EventDate] ) )
+RETURN IF ( ISBLANK ( LastOne ), BLANK (), DATEDIFF ( LastOne, NOW (), DAY ) )
+
+// Power BI cannot filter a table by a measure that returns text, so the
+// "needs attention" list on the status page filters on this instead:
+// add it to the visual's filters and set "is 1".
+// INACTIVE means the kiosk is deliberately not scanned (ACTIVE is not Y in
+// the list), so it is not a fault and must not be counted as one.
+Attention Flag =
+IF ( [Current Status] IN { "OK", "INACTIVE" } || ISBLANK ( [Current Status] ), 0, 1 )
+
+Kiosks Inactive =
+COUNTROWS ( FILTER ( FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ), [Current Status] = "INACTIVE" ) ) + 0
+
+
+// Background colour for the status column.
+// Table visual > Format > Cell elements > Background colour > fx >
+// Format style: Field value > choose this measure.
+Status Colour =
+SWITCH (
+    [Current Status],
+    "OK", "#15803D",
+    "OFFLINE", "#B91C1C",
+    "STALE", "#B91C1C",
+    "NO_AGENT", "#B91C1C",
+    "LOOP_GUARD", "#B91C1C",
+    "NO_ACCESS", "#B45309",
+    "AGENT_OUTDATED", "#B45309",
+    "EVENTLOG_UNAVAILABLE", "#B45309",
+    // Power BI kiosks running PBI Launcher (see Docs\PowerBI-Launcher.md),
+    // and Mach2 kiosks running Mach2 Launcher NG (Docs\Mach2-Launcher-NG.md)
+    "LAUNCHER_STALE", "#B91C1C",
+    "LAUNCHER_STOPPED", "#B91C1C",
+    "LAUNCHER_ERROR", "#B91C1C",
+    "SIGNIN_BLOCKED", "#B91C1C",
+    "WRONG_ACCOUNT", "#B91C1C",
+    "RECOVERING", "#B45309",
+    "NOT_SHOWING", "#B45309",
+    "NO_DISPLAY", "#B45309",
+    "HOLD", "#B45309",
+    "UNSUPERVISED", "#B45309",
+    "LAUNCHER_DISABLED", "#B45309",
+    "LAUNCHER_NOT_RUN", "#B45309",
+    "#4B5563"
+)
+
+// Rollout of PBI Launcher: Power BI kiosks report "pbi-<version>" as their
+// agent version once it runs; the old launcher reports nothing.
+Kiosks on PBI Launcher =
+COUNTROWS (
+    FILTER (
+        FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ),
+        LEFT ( [Agent Version], 4 ) = "pbi-"
+    )
+) + 0
+
+// Rollout of Mach2 Launcher NG: Mach2 kiosks report "1.00NG" (and later
+// "x.xxNG") as their agent version once it runs; the old watchdog reports
+// "7.0" or "6.1".
+Kiosks on Mach2 Launcher NG =
+COUNTROWS (
+    FILTER (
+        FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ),
+        RIGHT ( [Agent Version], 2 ) = "NG"
+    )
+) + 0
+
+
+// ===========================================================================
+// Fleet-wide counts
+//
+// Each walks the list of kiosks and asks the per-kiosk measure above, so
+// they always agree with what the status table shows. Hosts are filtered for
+// blanks because COLLECTOR_RUN rows belong to no kiosk.
+// ===========================================================================
+
+Kiosk List = FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) )
+
+Kiosks = COUNTROWS ( FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ) ) + 0
+
+Kiosks OK =
+COUNTROWS ( FILTER ( FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ), [Current Status] = "OK" ) ) + 0
+
+Kiosks Offline =
+COUNTROWS ( FILTER ( FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ), [Current Status] = "OFFLINE" ) ) + 0
+
+Watchdog Not Running =
+COUNTROWS (
+    FILTER (
+        FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ),
+        [Current Status] IN { "STALE", "NO_AGENT" }
+    )
+) + 0
+
+// Watchdog running, but it has stopped restarting a screen that restarts
+// did not fix (agent V7.0 loop guard). Someone has to go and look.
+Kiosks In Loop Guard =
+COUNTROWS ( FILTER ( FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ), [Current Status] = "LOOP_GUARD" ) ) + 0
+
+Loop Guard Holds = CALCULATE ( COUNTROWS ( Events ), Events[EventType] = "LOOP_GUARD_ENGAGED" ) + 0
+
+Kiosks Needing Attention =
+COUNTROWS (
+    FILTER (
+        FILTER ( VALUES ( Events[Host] ), NOT ISBLANK ( Events[Host] ) ),
+        NOT ( [Current Status] IN { "OK", "INACTIVE" } )
+    )
+) + 0
+
+// The headline for the top of the status page.
+Fleet Headline =
+VAR Bad = [Kiosks Needing Attention]
+RETURN
+    IF (
+        Bad = 0,
+        "ALL " & [Kiosks] & " KIOSKS OK",
+        Bad & IF ( Bad = 1, " KIOSK NEEDS", " KIOSKS NEED" ) & " ATTENTION"
+    )
+
+Fleet Headline Colour = IF ( [Kiosks Needing Attention] = 0, "#15803D", "#B91C1C" )
+
+
+// ===========================================================================
+// Is the data itself still arriving?
+//
+// Without this the board lies convincingly: if the collector stops, every
+// kiosk keeps showing its last known state and the screen still looks green.
+// ===========================================================================
+
+Last Collected = CALCULATE ( MAX ( Events[EventTimeLocal] ), Events[EventType] = "COLLECTOR_RUN", ALL ( Events ) )
+
+Minutes Since Collection = DATEDIFF ( [Last Collected], NOW (), MINUTE )
+
+Data Freshness =
+VAR Mins = [Minutes Since Collection]
+RETURN
+    SWITCH (
+        TRUE (),
+        ISBLANK ( Mins ), "No collector runs recorded",
+        Mins < 60, "Live - collected " & Mins & " min ago",
+        Mins < 1440, "STALE - last collected " & INT ( Mins / 60 ) & " h ago",
+        "STALE - last collected " & INT ( Mins / 1440 ) & " days ago"
+    )
+
+Data Freshness Colour = IF ( [Minutes Since Collection] < 60, "#15803D", "#B91C1C" )
