@@ -38,6 +38,20 @@ The first time on a PC, save the kiosk-admin credential. It is DPAPI-encrypted f
 .\Save-KioskCredential.ps1
 ```
 
+## Kiosk Fleet Web
+
+The fleet on the intranet, for everyone allowed: the manager below, in a browser, served by one PC as one service account. People sign in as themselves - their Windows account, with the role from AD groups, or a local break-glass account - and the role decides what they can do:
+
+- **Operators** see everything and can do what cannot break a kiosk: scan now, read live, screenshot, reload, restart the browser, a message, the log.
+- **Admins** can also restart, hold, stop, set passwords, edit kiosk configs, deploy and roll back.
+
+Everything done to a kiosk goes in an audit log with who did it. → [Docs/Fleet-Web.md](Docs/Fleet-Web.md)
+
+```powershell
+.\Install-FleetWeb.ps1 -ServiceAccount 'CONTOSO\svc-kioskfleet' -AllowHttp -AdminGroup 'CONTOSO\KioskFleet-Admins' -OperatorGroup 'CONTOSO\KioskFleet-Operators'
+.\Set-FleetWebUser.ps1 -Name breakglass -Role admin     # optional: a local account
+```
+
 ## Kiosk Fleet Manager
 
 A window reading the same CSV as the Power BI report, so it opens instantly and needs no credentials until you ask it to do something to a kiosk. → [Docs/Fleet-Manager.md](Docs/Fleet-Manager.md)
@@ -63,6 +77,9 @@ The same fleet in a console, for a session with no desktop: `Start-FleetDashboar
 
 | | |
 |---|---|
+| `Start-FleetWeb.bat` | Kiosk Fleet Web in a console, to try it (`Start-FleetWeb.ps1`). |
+| `Install-FleetWeb.ps1` | Kiosk Fleet Web as a server: address, certificate, firewall, scheduled task; `-Uninstall`. |
+| `Set-FleetWebUser.ps1` | The web page's local accounts and their roles → `Config\web-users.json`. |
 | `Start-KioskManager.bat` | Kiosk Fleet Manager, the window (`Show-FleetManager.ps1`). |
 | `Start-FleetDashboard.bat` | The same fleet in a console (`Show-FleetDashboard.ps1`). |
 | `Run-Collector.bat` | One scan by hand (`Collect-MWSTFleet.ps1`). Kiosks are read 8 at a time (`-ParallelHosts`), so a full scan is seconds rather than minutes. |
@@ -81,10 +98,11 @@ The same fleet in a console, for a session with no desktop: `Start-FleetDashboar
 | `PbiLauncher\` | The launcher, its start script and config template. |
 | `WebLauncher\` | Web Launcher (generated from PBI Launcher), its start script and config template. |
 | `Tools\` | `Build-WebLauncher.ps1`: rebuilds `WebLauncher.ps1` after a change to `PbiLauncher.ps1`. |
-| `Lib\` | Kiosk list reader, admin-share helpers, message helper, the fleet state both front ends draw (`MWST.FleetState.ps1`), and the launchers' status readers, and the old launchers' retirement (`MWST.LegacyLauncher.ps1`). |
+| `Lib\` | Kiosk list reader, admin-share helpers, message helper, the fleet state every front end draws (`MWST.FleetState.ps1`), and the launchers' status readers, and the old launchers' retirement (`MWST.LegacyLauncher.ps1`). The kiosk actions without a window (`Fleet.Actions.ps1`) and the web page's roles and accounts (`Fleet.WebAuth.ps1`). |
+| `Web\` | The web page Kiosk Fleet Web serves. |
 | `Reports\` | Power Query (`MWST_FleetEvents.pq`) and measures (`Measures.dax`) for the Power BI report. |
-| `Config\` | The saved credential. |
-| `Logs\` | Collector log, local copy of the CSV, deploy reports, screenshots, and the commands the manager ran (`run\`). |
+| `Config\` | The saved credential, and the web page's local accounts. |
+| `Logs\` | Collector log, local copy of the CSV, deploy reports, screenshots, the commands the manager ran (`run\`), and the web page's audit log (`web-audit.log`). |
 | `Docs\` | The guides linked above. |
 | `Tests\` | See below. |
 
@@ -99,6 +117,7 @@ The CSV lives on SharePoint next to the master kiosk list, and every copy of the
 
 ```powershell
 .\Tests\Test-FleetManager.ps1       # the manager window: tables, deploy commands, kiosk actions (~1 min)
+.\Tests\Test-FleetWeb.ps1           # the web page: sign-in, roles, kiosk actions, config, deploy commands, audit (~1 min)
 .\Tests\Test-FleetIntegration.ps1   # collector statuses, dashboard PBI tab, P and D menus (~1 min)
 .\Tests\Test-Deploy.ps1             # PBI Launcher deploy, rollback, commands, status tool (~1 min)
 .\Tests\Test-PbiLauncher.ps1        # the launcher against a fake tenant in headless Edge (~15 min)
@@ -107,4 +126,4 @@ The CSV lives on SharePoint next to the master kiosk list, and every copy of the
 .\Tests\Test-WebLauncher.ps1        # Web Launcher: the build, the deploy, the launcher against a stand-in site (~3 min)
 ```
 
-None of them contacts a real kiosk, station or tenant, writes the published CSV, or restarts this PC. Run the two Mach2 ones one after the other, not together.
+None of them contacts a real kiosk, station, tenant or AD, writes the published CSV, or restarts this PC. Run the two Mach2 ones one after the other, not together.
