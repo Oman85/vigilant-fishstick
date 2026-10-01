@@ -1,0 +1,7 @@
+# Local runtime data
+Config/web-users.json
+Logs/
+
+# Secrets: never commit
+Config/*.cred.xml
+**/password.seed
