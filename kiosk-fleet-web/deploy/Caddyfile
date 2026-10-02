@@ -1,9 +1,0 @@
-# The name people type to reach Kiosk Fleet Web.
-kioskfleet.corp.contoso.com {
-	# Your internal CA's certificate for that name:
-	tls /certs/kioskfleet.crt /certs/kioskfleet.key
-	# ...or a certificate from Caddy's own CA (browsers will need it trusted):
-	# tls internal
-
-	reverse_proxy kfw:8080
-}
