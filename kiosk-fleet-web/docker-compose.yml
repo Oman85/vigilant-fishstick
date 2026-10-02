@@ -1,0 +1,47 @@
+# Kiosk Fleet Web.
+#
+#   1. Put the kiosk-admin account's password in secrets/kiosk_admin_password.txt
+#      (one line, nothing else) and set KIOSK_ADMIN_USER below.
+#   2. docker compose up -d --build
+#   3. docker compose logs kfw     -> the one-time link that makes the first admin account
+#   4. Upload the kiosk list in Settings. Auto-scan does the rest every 15 minutes.
+#
+# Just trying it? KFW_DEMO: "1" below gives it a pretend fleet, and needs no secret.
+
+services:
+  kfw:
+    build: .
+    image: kiosk-fleet-web:latest
+    container_name: kiosk-fleet-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - kfw-data:/data
+      # The published copy of the events CSV, for the Power BI report: a
+      # folder OneDrive/SharePoint syncs on the host, say.
+      # - /srv/sharepoint/KIOSKS:/publish
+    environment:
+      TZ: Europe/Prague
+      # The account with admin rights on the kiosks (their C$ share, and WMI
+      # for restarts). DOMAIN\name or name@domain.
+      KIOSK_ADMIN_USER: 'CONTOSO\svc-kioskfleet'
+      KIOSK_ADMIN_PASSWORD_FILE: /run/secrets/kiosk_admin_password
+      # KFW_PUBLISH_CSV: /publish/MWST_FleetEvents.csv
+      # KFW_ADMIN_USER: admin              # the first admin account, instead of the setup link
+      # KFW_ADMIN_PASSWORD_FILE: /run/secrets/kfw_admin_password
+      # KFW_TRUST_PROXY: "true"           # behind the HTTPS proxy (see deploy/)
+      # KFW_DEMO: "1"
+    secrets:
+      - kiosk_admin_password
+    # Kiosks are found by their short names: tell the container which DNS
+    # suffix to try, if Docker's resolver does not already.
+    # dns_search:
+    #   - corp.contoso.com
+
+secrets:
+  kiosk_admin_password:
+    file: ./secrets/kiosk_admin_password.txt
+
+volumes:
+  kfw-data:

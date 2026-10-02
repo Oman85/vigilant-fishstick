@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+*.egg-info
+build
+dist
+data
+secrets
+tests
+docs
+deploy

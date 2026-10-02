@@ -1,0 +1,31 @@
+# HTTPS in front of Kiosk Fleet Web, with Caddy.
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.https.yml up -d
+#
+# Edit deploy/Caddyfile first: the server's name, and the certificate - your
+# internal CA's (tls cert.pem key.pem) or Caddy's own (tls internal).
+# The app's own port is then no longer published; only 443 is.
+
+services:
+  kfw:
+    ports: !reset []
+    environment:
+      KFW_TRUST_PROXY: "true"
+      KFW_SECURE_COOKIES: "true"
+
+  caddy:
+    image: caddy:2
+    container_name: kiosk-fleet-web-https
+    restart: unless-stopped
+    depends_on:
+      - kfw
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
+      - caddy-data:/data
+
+volumes:
+  caddy-data:
